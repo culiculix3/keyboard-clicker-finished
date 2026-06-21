@@ -125,18 +125,78 @@ const genCost = (g: Generator, owned: number) => Math.floor(g.baseCost * Math.po
 
 // Audio via WebAudio
 let audioCtx: AudioContext | null = null;
+const getCtx = () => {
+  if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  return audioCtx;
+};
 const playTone = (freq: number, dur: number, type: OscillatorType = "square", vol = 0.05) => {
   try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
+    const ctx = getCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
     o.type = type; o.frequency.value = freq;
     g.gain.value = vol;
-    o.connect(g); g.connect(audioCtx.destination);
+    o.connect(g); g.connect(ctx.destination);
     o.start();
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
-    o.stop(audioCtx.currentTime + dur);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.stop(ctx.currentTime + dur);
   } catch {}
+};
+
+// Noise burst for click "thock"
+const playNoise = (dur: number, vol: number, filterFreq: number, filterQ = 1) => {
+  try {
+    const ctx = getCtx();
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = filterFreq;
+    filter.Q.value = filterQ;
+    const g = ctx.createGain();
+    g.gain.value = vol;
+    src.connect(filter); filter.connect(g); g.connect(ctx.destination);
+    src.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+  } catch {}
+};
+
+// Sound profile per keyboard — progressively more satisfying
+type KbSound = (rand: number) => void;
+const KB_SOUNDS: Record<string, KbSound> = {
+  // Normal office — muted dull thunk
+  k1: () => { playNoise(0.04, 0.15, 600 + Math.random() * 200, 2); playTone(180, 0.03, "sine", 0.04); },
+  // RGB — light clicky tap
+  k2: () => { playNoise(0.03, 0.18, 1800 + Math.random() * 400, 4); playTone(320, 0.04, "triangle", 0.05); },
+  // Hacker Verde — membrane-ish soft chirp
+  k3: () => { playNoise(0.05, 0.16, 900, 3); playTone(220 + Math.random() * 40, 0.05, "square", 0.04); },
+  // Carbono — crisp tactile click
+  k4: () => { playNoise(0.025, 0.22, 2400, 6); playTone(440, 0.05, "triangle", 0.06); playTone(880, 0.03, "sine", 0.03); },
+  // Oro — premium "thock" deep & satisfying
+  k5: () => { playNoise(0.06, 0.28, 320, 8); playTone(140, 0.08, "sine", 0.09); playTone(280, 0.04, "triangle", 0.05); },
+  // Diamante — crystal high "ting"
+  k6: () => { playNoise(0.02, 0.18, 4000, 8); playTone(1200 + Math.random() * 200, 0.12, "sine", 0.08); playTone(2400, 0.08, "sine", 0.04); },
+  // Galaxia — ethereal layered
+  k7: () => { playNoise(0.04, 0.2, 1500, 6); playTone(523, 0.15, "sine", 0.07); playTone(784, 0.12, "triangle", 0.05); playTone(1046, 0.1, "sine", 0.04); },
+  // Neón — synth zap
+  k8: () => { playTone(660, 0.08, "sawtooth", 0.06); playTone(990, 0.06, "square", 0.04); playNoise(0.03, 0.15, 3000, 10); },
+  // Cyberpunk — glitchy multi
+  k9: () => { playTone(200 + Math.random() * 600, 0.04, "square", 0.05); playTone(800 + Math.random() * 400, 0.05, "sawtooth", 0.04); playNoise(0.03, 0.18, 2000, 5); },
+  // Legendario — full ASMR thock + crystal harmonic
+  k10: () => {
+    playNoise(0.08, 0.35, 240, 10);
+    playTone(110, 0.12, "sine", 0.12);
+    playTone(220, 0.1, "triangle", 0.07);
+    playTone(880, 0.15, "sine", 0.05);
+    playTone(1760, 0.08, "sine", 0.03);
+  },
+};
+
+const playKbSound = (kbId: string) => {
+  try { (KB_SOUNDS[kbId] || KB_SOUNDS.k1)(Math.random()); } catch {}
 };
 
 function KeyboardClicker() {
@@ -317,8 +377,8 @@ function KeyboardClicker() {
     setTimeout(() => setFloaters(f => f.filter(x => x.id !== fid)), 900);
 
     if (newCombo >= 20) { setShake(true); setTimeout(() => setShake(false), 200); }
-    if (state.sound) playTone(800 + Math.random() * 200, 0.04, "square", 0.03);
-  }, [combo, perClick, state.sound]);
+    if (state.sound) playKbSound(state.currentKeyboard);
+  }, [combo, perClick, state.sound, state.currentKeyboard]);
 
   // Keyboard listener
   useEffect(() => {
@@ -505,13 +565,7 @@ function KeyboardClicker() {
           </div>
 
           <div style={styles.kbWrap as any} onClick={handleClick}>
-            <div style={{ ...styles.kb, background: currentKb.gradient } as any} className="kbglow">
-              <div style={styles.kbInner as any}>
-                {"QWERTYUIOPASDFGHJKLZXCVBNM".split("").map((c, i) => (
-                  <div key={i} style={styles.key as any}>{c}</div>
-                ))}
-              </div>
-            </div>
+            <RealisticKeyboard kb={currentKb} />
             {floaters.map(f => (
               <div key={f.id} className="floater" style={{ left: f.x, top: f.y, color: f.color } as any}>{f.text}</div>
             ))}
@@ -605,6 +659,90 @@ function KeyboardClicker() {
     </div>
   );
 }
+
+// ---------- Realistic Keyboard ----------
+const ROWS: { keys: { label: string; w?: number }[] }[] = [
+  { keys: ["` 1 2 3 4 5 6 7 8 9 0 - =".split(" ").map(c => ({ label: c })), [{ label: "⌫", w: 2 }]].flat() as any },
+  { keys: [[{ label: "Tab", w: 1.5 }], "Q W E R T Y U I O P [ ]".split(" ").map(c => ({ label: c })), [{ label: "\\", w: 1.5 }]].flat() as any },
+  { keys: [[{ label: "Caps", w: 1.8 }], "A S D F G H J K L ; '".split(" ").map(c => ({ label: c })), [{ label: "Enter", w: 2.2 }]].flat() as any },
+  { keys: [[{ label: "Shift", w: 2.3 }], "Z X C V B N M , . /".split(" ").map(c => ({ label: c })), [{ label: "Shift", w: 2.7 }]].flat() as any },
+  { keys: [{ label: "Ctrl", w: 1.3 }, { label: "Win", w: 1.2 }, { label: "Alt", w: 1.2 }, { label: "", w: 6.5 }, { label: "Alt", w: 1.2 }, { label: "Fn", w: 1.2 }, { label: "Ctrl", w: 1.4 }] },
+];
+
+function RealisticKeyboard({ kb }: { kb: Keyboard }) {
+  // Per-keyboard visual theme
+  const theme = KB_THEMES[kb.id] || KB_THEMES.k1;
+  const [pressed, setPressed] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
+      setPressed(e.key.toUpperCase());
+      setTimeout(() => setPressed(null), 120);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  return (
+    <div style={{
+      width: "100%", height: "100%", borderRadius: 14, padding: "14px 12px 18px",
+      background: theme.body,
+      boxShadow: `${theme.glow}, inset 0 2px 4px rgba(255,255,255,0.06), inset 0 -6px 12px rgba(0,0,0,0.6)`,
+      border: theme.border,
+      position: "relative",
+      display: "flex", flexDirection: "column", gap: 4,
+    } as any} className="kbglow">
+      {/* underglow strip for RGB-style */}
+      {theme.underglow && (
+        <div style={{
+          position: "absolute", left: 8, right: 8, bottom: 2, height: 6, borderRadius: 4,
+          background: theme.underglow, filter: "blur(4px)", opacity: 0.9,
+        } as any} />
+      )}
+      {ROWS.map((row, ri) => (
+        <div key={ri} style={{ display: "flex", gap: 4, flex: 1 }}>
+          {row.keys.map((k, ki) => {
+            const isPressed = pressed && k.label.toUpperCase() === pressed;
+            return (
+              <div key={ki} style={{
+                flex: k.w || 1,
+                background: theme.keyBg,
+                color: theme.keyText,
+                borderRadius: 4,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: k.label.length > 2 ? 8 : 10,
+                fontWeight: 600,
+                fontFamily: theme.font || "monospace",
+                boxShadow: isPressed
+                  ? `inset 0 2px 4px rgba(0,0,0,0.6), 0 0 8px ${theme.accent}`
+                  : `inset 0 -2px 0 rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.4)`,
+                textShadow: theme.textGlow ? `0 0 4px ${theme.accent}` : "none",
+                transform: isPressed ? "translateY(1px)" : "none",
+                transition: "transform 0.05s, box-shadow 0.05s",
+                border: theme.keyBorder || "none",
+              } as any}>{k.label}</div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type Theme = { body: string; keyBg: string; keyText: string; accent: string; glow: string; border: string; underglow?: string; textGlow?: boolean; font?: string; keyBorder?: string };
+const KB_THEMES: Record<string, Theme> = {
+  k1: { body: "linear-gradient(180deg,#3a3328,#1f1a14)", keyBg: "linear-gradient(180deg,#d8cfbe,#a89e8a)", keyText: "#3a2f20", accent: "#fff", glow: "0 8px 24px rgba(0,0,0,0.5)", border: "1px solid #2a2218" },
+  k2: { body: "linear-gradient(180deg,#1a1a1a,#0a0a0a)", keyBg: "linear-gradient(180deg,#2a2a2a,#101010)", keyText: "#fff", accent: "#ff00e1", glow: "0 0 40px rgba(255,0,225,0.35)", border: "1px solid #333", underglow: "linear-gradient(90deg,#ff0080,#7928ca,#0070f3,#00ffea,#ff00e1)", textGlow: true },
+  k3: { body: "linear-gradient(180deg,#0a1a0a,#000)", keyBg: "linear-gradient(180deg,#0d2818,#031208)", keyText: "#00ff41", accent: "#00ff41", glow: "0 0 30px rgba(0,255,65,0.4)", border: "1px solid #003300", textGlow: true, font: "'Courier New', monospace" },
+  k4: { body: "linear-gradient(180deg,#1a1a1a,#0a0a0a)", keyBg: "linear-gradient(180deg,#222,#000)", keyText: "#ddd", accent: "#fff", glow: "0 0 24px rgba(255,255,255,0.1)", border: "1px solid #2a2a2a", keyBorder: "1px solid #1a1a1a" },
+  k5: { body: "linear-gradient(180deg,#5a3a0a,#2a1d05)", keyBg: "linear-gradient(180deg,#ffd700,#b8860b)", keyText: "#3a2400", accent: "#ffd700", glow: "0 0 40px rgba(255,215,0,0.45)", border: "1px solid #8a6810" },
+  k6: { body: "linear-gradient(180deg,#1a3a4a,#0a1a25)", keyBg: "linear-gradient(180deg,#b9f2ff,#6bd4f0)", keyText: "#003a4a", accent: "#00d4ff", glow: "0 0 50px rgba(0,212,255,0.5)", border: "1px solid #2a8aa0", textGlow: true },
+  k7: { body: "radial-gradient(ellipse,#2a0055,#000)", keyBg: "linear-gradient(180deg,#1a0040,#0a0020)", keyText: "#c4a4ff", accent: "#ff00e1", glow: "0 0 60px rgba(121,40,202,0.6)", border: "1px solid #7928ca", textGlow: true, underglow: "linear-gradient(90deg,#7928ca,#ff00e1,#0070f3)" },
+  k8: { body: "linear-gradient(180deg,#001515,#000)", keyBg: "linear-gradient(180deg,#001a1a,#000)", keyText: "#00ffea", accent: "#00ffea", glow: "0 0 50px rgba(0,255,234,0.5)", border: "1px solid #00ffea", textGlow: true, underglow: "linear-gradient(90deg,#00ffea,#ff00e1)" },
+  k9: { body: "linear-gradient(180deg,#1a0020,#000)", keyBg: "linear-gradient(180deg,#1a0010,#000)", keyText: "#fcee0a", accent: "#ff003c", glow: "0 0 50px rgba(252,238,10,0.4), 0 0 80px rgba(255,0,60,0.3)", border: "1px solid #fcee0a", textGlow: true, underglow: "linear-gradient(90deg,#fcee0a,#ff003c,#00f0ff)" },
+  k10: { body: "linear-gradient(180deg,#1a0033,#000)", keyBg: "linear-gradient(180deg,#220044,#0a0015)", keyText: "#fff", accent: "#ff00cc", glow: "0 0 80px rgba(255,0,204,0.6), 0 0 120px rgba(0,255,213,0.4)", border: "2px solid #ff00cc", textGlow: true, underglow: "linear-gradient(90deg,#ff00cc,#333399,#00ffd5,#ff00cc)" },
+};
 
 const styles: Record<string, React.CSSProperties> = {
   app: {
