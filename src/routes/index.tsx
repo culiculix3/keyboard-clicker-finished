@@ -377,8 +377,8 @@ function KeyboardClicker() {
     setTimeout(() => setFloaters(f => f.filter(x => x.id !== fid)), 900);
 
     if (newCombo >= 20) { setShake(true); setTimeout(() => setShake(false), 200); }
-    if (state.sound) playTone(800 + Math.random() * 200, 0.04, "square", 0.03);
-  }, [combo, perClick, state.sound]);
+    if (state.sound) playKbSound(state.currentKeyboard);
+  }, [combo, perClick, state.sound, state.currentKeyboard]);
 
   // Keyboard listener
   useEffect(() => {
