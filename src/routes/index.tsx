@@ -125,18 +125,78 @@ const genCost = (g: Generator, owned: number) => Math.floor(g.baseCost * Math.po
 
 // Audio via WebAudio
 let audioCtx: AudioContext | null = null;
+const getCtx = () => {
+  if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  return audioCtx;
+};
 const playTone = (freq: number, dur: number, type: OscillatorType = "square", vol = 0.05) => {
   try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
+    const ctx = getCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
     o.type = type; o.frequency.value = freq;
     g.gain.value = vol;
-    o.connect(g); g.connect(audioCtx.destination);
+    o.connect(g); g.connect(ctx.destination);
     o.start();
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
-    o.stop(audioCtx.currentTime + dur);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.stop(ctx.currentTime + dur);
   } catch {}
+};
+
+// Noise burst for click "thock"
+const playNoise = (dur: number, vol: number, filterFreq: number, filterQ = 1) => {
+  try {
+    const ctx = getCtx();
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = filterFreq;
+    filter.Q.value = filterQ;
+    const g = ctx.createGain();
+    g.gain.value = vol;
+    src.connect(filter); filter.connect(g); g.connect(ctx.destination);
+    src.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+  } catch {}
+};
+
+// Sound profile per keyboard — progressively more satisfying
+type KbSound = (rand: number) => void;
+const KB_SOUNDS: Record<string, KbSound> = {
+  // Normal office — muted dull thunk
+  k1: () => { playNoise(0.04, 0.15, 600 + Math.random() * 200, 2); playTone(180, 0.03, "sine", 0.04); },
+  // RGB — light clicky tap
+  k2: () => { playNoise(0.03, 0.18, 1800 + Math.random() * 400, 4); playTone(320, 0.04, "triangle", 0.05); },
+  // Hacker Verde — membrane-ish soft chirp
+  k3: () => { playNoise(0.05, 0.16, 900, 3); playTone(220 + Math.random() * 40, 0.05, "square", 0.04); },
+  // Carbono — crisp tactile click
+  k4: () => { playNoise(0.025, 0.22, 2400, 6); playTone(440, 0.05, "triangle", 0.06); playTone(880, 0.03, "sine", 0.03); },
+  // Oro — premium "thock" deep & satisfying
+  k5: () => { playNoise(0.06, 0.28, 320, 8); playTone(140, 0.08, "sine", 0.09); playTone(280, 0.04, "triangle", 0.05); },
+  // Diamante — crystal high "ting"
+  k6: () => { playNoise(0.02, 0.18, 4000, 8); playTone(1200 + Math.random() * 200, 0.12, "sine", 0.08); playTone(2400, 0.08, "sine", 0.04); },
+  // Galaxia — ethereal layered
+  k7: () => { playNoise(0.04, 0.2, 1500, 6); playTone(523, 0.15, "sine", 0.07); playTone(784, 0.12, "triangle", 0.05); playTone(1046, 0.1, "sine", 0.04); },
+  // Neón — synth zap
+  k8: () => { playTone(660, 0.08, "sawtooth", 0.06); playTone(990, 0.06, "square", 0.04); playNoise(0.03, 0.15, 3000, 10); },
+  // Cyberpunk — glitchy multi
+  k9: () => { playTone(200 + Math.random() * 600, 0.04, "square", 0.05); playTone(800 + Math.random() * 400, 0.05, "sawtooth", 0.04); playNoise(0.03, 0.18, 2000, 5); },
+  // Legendario — full ASMR thock + crystal harmonic
+  k10: () => {
+    playNoise(0.08, 0.35, 240, 10);
+    playTone(110, 0.12, "sine", 0.12);
+    playTone(220, 0.1, "triangle", 0.07);
+    playTone(880, 0.15, "sine", 0.05);
+    playTone(1760, 0.08, "sine", 0.03);
+  },
+};
+
+const playKbSound = (kbId: string) => {
+  try { (KB_SOUNDS[kbId] || KB_SOUNDS.k1)(Math.random()); } catch {}
 };
 
 function KeyboardClicker() {
