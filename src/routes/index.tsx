@@ -565,13 +565,7 @@ function KeyboardClicker() {
           </div>
 
           <div style={styles.kbWrap as any} onClick={handleClick}>
-            <div style={{ ...styles.kb, background: currentKb.gradient } as any} className="kbglow">
-              <div style={styles.kbInner as any}>
-                {"QWERTYUIOPASDFGHJKLZXCVBNM".split("").map((c, i) => (
-                  <div key={i} style={styles.key as any}>{c}</div>
-                ))}
-              </div>
-            </div>
+            <RealisticKeyboard kb={currentKb} />
             {floaters.map(f => (
               <div key={f.id} className="floater" style={{ left: f.x, top: f.y, color: f.color } as any}>{f.text}</div>
             ))}
